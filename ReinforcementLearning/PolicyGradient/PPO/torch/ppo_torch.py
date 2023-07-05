@@ -8,7 +8,7 @@ from torch.distributions.categorical import Categorical
 class PPOMemory:
     def __init__(self, batch_size):
         self.states = []
-        self.probs = []
+        self.probs = [] #the log probs
         self.vals = []
         self.actions = []
         self.rewards = []
@@ -17,6 +17,7 @@ class PPOMemory:
         self.batch_size = batch_size
 
     def generate_batches(self):
+        #batch size chunks of shuffled indices
         n_states = len(self.states)
         batch_start = np.arange(0, n_states, self.batch_size)
         indices = np.arange(n_states, dtype=np.int64)
@@ -48,8 +49,9 @@ class PPOMemory:
         self.vals = []
 
 class ActorNetwork(nn.Module):
+    """Actor decides next action based on current state, network outputs probs(softmax/DiagGaussiab) for a distribution"""
     def __init__(self, n_actions, input_dims, alpha,
-            fc1_dims=256, fc2_dims=256, chkpt_dir='tmp/ppo'):
+            fc1_dims=128, fc2_dims=128, chkpt_dir='tmp/ppo'):
         super(ActorNetwork, self).__init__()
 
         self.checkpoint_file = os.path.join(chkpt_dir, 'actor_torch_ppo')
@@ -59,10 +61,16 @@ class ActorNetwork(nn.Module):
                 nn.Linear(fc1_dims, fc2_dims),
                 nn.ReLU(),
                 nn.Linear(fc2_dims, n_actions),
-                nn.Softmax(dim=-1)
+                nn.Softmax(dim=-1)#since its a probability dist
         )
 
         self.optimizer = optim.Adam(self.parameters(), lr=alpha)
+        if T.cuda.is_available():
+            device = T.device('cuda')
+            print('GPU is available')
+        else:
+            device = T.device('cpu')
+            print('GPU is not available, using CPU')
         self.device = T.device('cuda:0' if T.cuda.is_available() else 'cpu')
         self.to(self.device)
 
@@ -79,7 +87,7 @@ class ActorNetwork(nn.Module):
         self.load_state_dict(T.load(self.checkpoint_file))
 
 class CriticNetwork(nn.Module):
-    def __init__(self, input_dims, alpha, fc1_dims=256, fc2_dims=256,
+    def __init__(self, input_dims, alpha, fc1_dims=128, fc2_dims=128,
             chkpt_dir='tmp/ppo'):
         super(CriticNetwork, self).__init__()
 
@@ -108,6 +116,7 @@ class CriticNetwork(nn.Module):
         self.load_state_dict(T.load(self.checkpoint_file))
 
 class Agent:
+    """Base agent class"""
     def __init__(self, n_actions, input_dims, gamma=0.99, alpha=0.0003, gae_lambda=0.95,
             policy_clip=0.2, batch_size=64, n_epochs=10):
         self.gamma = gamma
@@ -133,14 +142,16 @@ class Agent:
         self.critic.load_checkpoint()
 
     def choose_action(self, observation):
-        state = T.tensor([observation], dtype=T.float).to(self.actor.device)
-
+        # print("observation:", type(observation))
+        state = T.tensor(observation, dtype=T.float).to(self.actor.device)
+        # print("state:", state)
         dist = self.actor(state)
         value = self.critic(state)
-        action = dist.sample()
+        # print("issue")
+        action = dist.sample() #sample distribution to get action
 
-        probs = T.squeeze(dist.log_prob(action)).item()
-        action = T.squeeze(action).item()
+        probs = T.squeeze(dist.log_prob(action)).item() #.item gives integer, we want the log_probs of action
+        action = T.squeeze(action).item() #get the action
         value = T.squeeze(value).item()
 
         return action, probs, value
@@ -156,7 +167,7 @@ class Agent:
 
             for t in range(len(reward_arr)-1):
                 discount = 1
-                a_t = 0
+                a_t = 0 #advantage at each timestep starts out as 0
                 for k in range(t, len(reward_arr)-1):
                     a_t += discount*(reward_arr[k] + self.gamma*values[k+1]*\
                             (1-int(dones_arr[k])) - values[k])
@@ -174,7 +185,7 @@ class Agent:
                 critic_value = self.critic(states)
 
                 critic_value = T.squeeze(critic_value)
-
+                #using new dist
                 new_probs = dist.log_prob(actions)
                 prob_ratio = new_probs.exp() / old_probs.exp()
                 #prob_ratio = (new_probs - old_probs).exp()

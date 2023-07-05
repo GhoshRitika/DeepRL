@@ -4,7 +4,8 @@ from ppo_torch import Agent
 from utils import plot_learning_curve
 
 if __name__ == '__main__':
-    env = gym.make('CartPole-v0')
+    # env = gym.make('CartPole-v0')
+    env = gym.make("LunarLander-v2")
     N = 20
     batch_size = 5
     n_epochs = 4
@@ -12,9 +13,10 @@ if __name__ == '__main__':
     agent = Agent(n_actions=env.action_space.n, batch_size=batch_size, 
                     alpha=alpha, n_epochs=n_epochs, 
                     input_dims=env.observation_space.shape)
-    n_games = 300
+    n_games = 1000000 #300
 
-    figure_file = 'plots/cartpole.png'
+    # figure_file = 'plots/cartpole.png'
+    figure_file = 'plots/lunarlander.png'
 
     best_score = env.reward_range[0]
     score_history = []
@@ -24,12 +26,15 @@ if __name__ == '__main__':
     n_steps = 0
 
     for i in range(n_games):
+        print(i)
         observation = env.reset()
+        observation=observation[0]
+        # print(observation)
         done = False
         score = 0
         while not done:
             action, prob, val = agent.choose_action(observation)
-            observation_, reward, done, info = env.step(action)
+            observation_, reward, done, info,_ = env.step(action)
             n_steps += 1
             score += reward
             agent.remember(observation, action, prob, val, reward, done)
